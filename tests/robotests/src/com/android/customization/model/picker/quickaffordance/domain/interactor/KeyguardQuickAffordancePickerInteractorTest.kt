@@ -26,12 +26,10 @@ import com.android.customization.picker.quickaffordance.shared.model.KeyguardQui
 import com.android.systemui.shared.customization.data.content.FakeCustomizationProviderClient
 import com.android.systemui.shared.keyguard.shared.model.KeyguardQuickAffordanceSlots
 import com.android.wallpaper.config.BaseFlags
-import com.android.wallpaper.testing.FakeSnapshotStore
 import com.android.wallpaper.testing.collectLastValue
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.resetMain
@@ -65,16 +63,10 @@ class KeyguardQuickAffordancePickerInteractorTest {
                 repository =
                     KeyguardQuickAffordancePickerRepository(
                         client = client,
-                        scope = testScope.backgroundScope,
+                        mainScope = testScope.backgroundScope,
                     ),
                 client = client,
-                snapshotRestorer = {
-                    KeyguardQuickAffordanceSnapshotRestorer(
-                            interactor = underTest,
-                            client = client,
-                        )
-                        .apply { runBlocking { setUpSnapshotRestorer(FakeSnapshotStore()) } }
-                },
+                snapshotRestorer = KeyguardQuickAffordanceSnapshotRestorer(client),
             )
     }
 

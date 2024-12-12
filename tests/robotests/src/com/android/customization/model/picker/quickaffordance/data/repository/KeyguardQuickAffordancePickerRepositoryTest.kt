@@ -56,7 +56,7 @@ class KeyguardQuickAffordancePickerRepositoryTest {
         underTest =
             KeyguardQuickAffordancePickerRepository(
                 client = client,
-                scope = testScope.backgroundScope,
+                mainScope = testScope.backgroundScope,
             )
     }
 

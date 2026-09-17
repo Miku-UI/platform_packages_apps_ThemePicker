@@ -18,13 +18,22 @@ package com.android.wallpaper.customization.ui.viewmodel
 
 import android.content.Context
 import android.view.accessibility.AccessibilityManager
+import com.android.customization.packtheme.ui.viewmodel.PackThemeViewModel
+import com.android.customization.picker.clock.ui.viewmodel.ClockPickerViewModel
+import com.android.customization.picker.color.ui.viewmodel.ColorPickerViewModel
+import com.android.customization.picker.grid.ui.viewmodel.GridPickerViewModel
+import com.android.customization.picker.icon.ui.viewmodel.AppIconPickerViewModel
 import com.android.customization.picker.mode.ui.viewmodel.DarkModeViewModel
+import com.android.customization.picker.quickaffordance.ui.viewmodel.KeyguardQuickAffordancePickerViewModel2
+import com.android.customization.picker.settings.ui.viewmodel.ColorContrastSectionViewModel2
 import com.android.wallpaper.config.BaseFlags
+import com.android.wallpaper.customization.ui.util.ThemePickerCustomizationOptionUtil
 import com.android.wallpaper.customization.ui.util.ThemePickerCustomizationOptionUtil.ThemePickerHomeCustomizationOption.APP_ICONS
 import com.android.wallpaper.customization.ui.util.ThemePickerCustomizationOptionUtil.ThemePickerHomeCustomizationOption.COLORS
 import com.android.wallpaper.customization.ui.util.ThemePickerCustomizationOptionUtil.ThemePickerHomeCustomizationOption.GRID
 import com.android.wallpaper.customization.ui.util.ThemePickerCustomizationOptionUtil.ThemePickerLockCustomizationOption.CLOCK
 import com.android.wallpaper.customization.ui.util.ThemePickerCustomizationOptionUtil.ThemePickerLockCustomizationOption.SHORTCUTS
+import com.android.wallpaper.picker.common.preview.ui.viewmodel.WorkspacePreviewScreen
 import com.android.wallpaper.picker.customization.ui.view.ApplyButton
 import com.android.wallpaper.picker.customization.ui.view.ApplyButton.ApplyButtonState.APPLY_BUTTON_DISABLED
 import com.android.wallpaper.picker.customization.ui.view.ApplyButton.ApplyButtonState.APPLY_BUTTON_ENABLED
@@ -34,13 +43,17 @@ import com.android.wallpaper.picker.customization.ui.viewmodel.CustomizationOpti
 import com.android.wallpaper.picker.customization.ui.viewmodel.CustomizationOptionsViewModelFactory
 import com.android.wallpaper.picker.customization.ui.viewmodel.DefaultCustomizationOptionsViewModel
 import com.android.wallpaper.picker.preview.ui.util.AccessibilityUtil
+import com.android.wallpaper.util.ActivityUtils
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.scopes.ViewModelScoped
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -48,6 +61,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -55,15 +69,15 @@ import kotlinx.coroutines.launch
 class ThemePickerCustomizationOptionsViewModel
 @AssistedInject
 constructor(
+    @ApplicationContext private val appContext: Context,
     defaultCustomizationOptionsViewModelFactory: DefaultCustomizationOptionsViewModel.Factory,
     keyguardQuickAffordancePickerViewModel2Factory: KeyguardQuickAffordancePickerViewModel2.Factory,
-    colorPickerViewModel2Factory: ColorPickerViewModel2.Factory,
+    colorPickerViewModelFactory: ColorPickerViewModel.Factory,
     clockPickerViewModelFactory: ClockPickerViewModel.Factory,
     gridPickerViewModelFactory: GridPickerViewModel.Factory,
     appIconPickerViewModelFactory: AppIconPickerViewModel.Factory,
     val colorContrastSectionViewModel: ColorContrastSectionViewModel2,
     val darkModeViewModel: DarkModeViewModel,
-    val themedIconViewModel: ThemedIconViewModel,
     val packThemeViewModel: PackThemeViewModel,
     @Assisted private val viewModelScope: CoroutineScope,
     @Assisted("destination") initialDeepLinkDestination: String?,
@@ -86,13 +100,13 @@ constructor(
             viewModelScope = viewModelScope,
             initialDeepLinkShortcutSlotId = initialDeepLinkShortcutSlotId,
         )
-    val colorPickerViewModel2 = colorPickerViewModel2Factory.create(viewModelScope = viewModelScope)
+    val colorPickerViewModel2 = colorPickerViewModelFactory.create(viewModelScope = viewModelScope)
     val gridPickerViewModel = gridPickerViewModelFactory.create(viewModelScope = viewModelScope)
     val appIconPickerViewModel =
         appIconPickerViewModelFactory.create(viewModelScope = viewModelScope)
 
     override val customizationOptionsData: Flow<CustomizationOptionsData> =
-        if (BaseFlags.get().isExtendibleThemeManager()) {
+        if (BaseFlags.get(appContext).isExtendibleThemeManager()) {
             combine(
                 gridPickerViewModel.isGridCustomizationAvailable,
                 appIconPickerViewModel.isIconStyleAvailable,
@@ -102,6 +116,7 @@ constructor(
                     isGridCustomizationAvailable = isGridCustomizationAvailable,
                     isIconStyleAvailable = isIconStyleAvailable,
                     isShapeAvailable = isShapeOptionsAvailable,
+                    isColorCustomizationAvailable = !ActivityUtils.isSUWMode(appContext),
                 )
             }
         } else {
@@ -114,6 +129,7 @@ constructor(
                     isGridCustomizationAvailable = isGridCustomizationAvailable,
                     isIconStyleAvailable = isThemedIconAvailable,
                     isShapeAvailable = isShapeOptionsAvailable,
+                    isColorCustomizationAvailable = !ActivityUtils.isSUWMode(appContext),
                 )
             }
         }
@@ -122,11 +138,37 @@ constructor(
 
     override val selectedOption = defaultCustomizationOptionsViewModel.selectedOption
 
+    /**
+     * The home screen preview workspace rotates every 3 seconds when the user is in the color
+     * picker. Otherwise only the Launcher workspace is shown.
+     */
+    val workspacePreviewScreen =
+        selectedOption.flatMapLatest {
+            if (
+                it == ThemePickerCustomizationOptionUtil.ThemePickerHomeCustomizationOption.COLORS
+            ) {
+                flow {
+                    val screenList = WorkspacePreviewScreen.entries
+                    var idx = 0
+                    emit(screenList[idx])
+                    while (true) {
+                        delay(3000.milliseconds)
+                        idx = (idx + 1) % screenList.size
+                        emit(screenList[idx])
+                    }
+                }
+            } else {
+                flowOf(WorkspacePreviewScreen.LAUNCHER)
+            }
+        }
+
     override val discardChangesDialogViewModel =
         defaultCustomizationOptionsViewModel.discardChangesDialogViewModel
 
     override fun handleBackPressed(): Boolean {
-        if (applyButtonState.value == APPLY_BUTTON_ENABLED) {
+        // Note we need to check isApplyInProgress since applyButtonState is a state flow that the
+        // downstream value is calculated asynchronously and may not be up to date.
+        if (applyButtonState.value == APPLY_BUTTON_ENABLED && !isApplyInProgress.value) {
             defaultCustomizationOptionsViewModel.showDiscardChangesDialogViewModel(
                 // Hide the picker's clock when we start the transition back to the primary screen.
                 onDiscard = { clockPickerViewModel.setShowPickerClockControllerView(false) }
@@ -143,7 +185,7 @@ constructor(
 
         keyguardQuickAffordancePickerViewModel2.resetPreview()
         gridPickerViewModel.resetPreview()
-        if (BaseFlags.get().isExtendibleThemeManager()) {
+        if (BaseFlags.get(appContext).isExtendibleThemeManager()) {
             appIconPickerViewModel.resetPreview2()
         } else {
             appIconPickerViewModel.resetPreview()
@@ -166,7 +208,7 @@ constructor(
     }
 
     override fun refetchThemeInfo() {
-        if (BaseFlags.get().isPackThemeEnabled()) {
+        if (BaseFlags.get(appContext).isPackThemeEnabled()) {
             packThemeViewModel.refetchPackTheme()
         }
     }
@@ -232,7 +274,7 @@ constructor(
                     SHORTCUTS -> keyguardQuickAffordancePickerViewModel2.onApply
                     GRID -> gridPickerViewModel.onApply
                     APP_ICONS ->
-                        if (BaseFlags.get().isExtendibleThemeManager()) {
+                        if (BaseFlags.get(appContext).isExtendibleThemeManager()) {
                             appIconPickerViewModel.iconStyleAndShapeOnApply
                         } else {
                             appIconPickerViewModel.shapeAndThemedIconOnApply
@@ -294,6 +336,17 @@ constructor(
             context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
         )
     }
+
+    val shouldShowToolbar =
+        combine(selectedOption, colorPickerViewModel2.currentScreen) {
+            selectedOption,
+            colorPickerScreen ->
+            val isInDrillDown =
+                selectedOption == COLORS &&
+                    (colorPickerScreen == ColorPickerViewModel.Screen.VARIANT_PICKER ||
+                        colorPickerScreen == ColorPickerViewModel.Screen.FREEFORM_PICKER)
+            !isInDrillDown
+        }
 
     @ViewModelScoped
     @AssistedFactory

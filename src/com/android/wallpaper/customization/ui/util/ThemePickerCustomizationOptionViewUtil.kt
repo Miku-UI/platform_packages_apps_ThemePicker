@@ -21,13 +21,13 @@ import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewStub
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.compose.ui.platform.ComposeView
 import com.android.customization.picker.mode.shared.util.DarkModeLifecycleUtil
 import com.android.themepicker.R
 import com.android.wallpaper.config.BaseFlags
-import com.android.wallpaper.customization.ui.compose.ColorFloatingSheet
 import com.android.wallpaper.customization.ui.util.ThemePickerCustomizationOptionUtil.ThemePickerHomeCustomizationOption.APP_ICONS
 import com.android.wallpaper.customization.ui.util.ThemePickerCustomizationOptionUtil.ThemePickerHomeCustomizationOption.COLORS
 import com.android.wallpaper.customization.ui.util.ThemePickerCustomizationOptionUtil.ThemePickerHomeCustomizationOption.COLOR_CONTRAST
@@ -69,7 +69,7 @@ constructor(
     ): List<Pair<CustomizationOptionUtil.CustomizationOption, View>> {
         customizationOptionsData as ThemePickerCustomizationOptionsData
         val isKeyguardQuickAffordanceEnabled =
-            BaseFlags.get().isKeyguardQuickAffordanceEnabled(optionContainer.context)
+            BaseFlags.get(context).isKeyguardQuickAffordanceEnabled(optionContainer.context)
         val showPackEntry =
             Settings.Secure.getInt(
                 context.contentResolver,
@@ -87,7 +87,7 @@ constructor(
             LOCK_SCREEN ->
                 buildList {
                     addAll(defaultOptionEntries)
-                    if (BaseFlags.get().isPackThemeEnabled() && showPackEntry) {
+                    if (BaseFlags.get(context).isPackThemeEnabled() && showPackEntry) {
                         add(
                             PACK_THEME to
                                 layoutInflater.inflate(
@@ -135,7 +135,7 @@ constructor(
             HOME_SCREEN ->
                 buildList {
                     addAll(defaultOptionEntries)
-                    if (BaseFlags.get().shouldShowDesktopUi(optionContainer.context)) {
+                    if (BaseFlags.get(context).shouldShowDesktopUi(optionContainer.context)) {
                         add(
                             SCREEN_SAVER to
                                 layoutInflater.inflate(
@@ -145,7 +145,7 @@ constructor(
                                 )
                         )
                     }
-                    if (BaseFlags.get().isPackThemeEnabled() && showPackEntry) {
+                    if (BaseFlags.get(context).isPackThemeEnabled() && showPackEntry) {
                         add(
                             PACK_THEME to
                                 layoutInflater.inflate(
@@ -155,14 +155,16 @@ constructor(
                                 )
                         )
                     }
-                    add(
-                        COLORS to
-                            layoutInflater.inflate(
-                                R.layout.customization_option_entry_colors,
-                                optionContainer,
-                                false,
-                            )
-                    )
+                    if (customizationOptionsData.isColorCustomizationAvailable) {
+                        add(
+                            COLORS to
+                                layoutInflater.inflate(
+                                    R.layout.customization_option_entry_colors,
+                                    optionContainer,
+                                    false,
+                                )
+                        )
+                    }
                     add(
                         COLOR_CONTRAST to
                             layoutInflater.inflate(
@@ -209,17 +211,27 @@ constructor(
                 bottomSheetContainer = bottomSheetContainer,
                 layoutInflater = layoutInflater,
             )
-        val isComposeRefactorEnabled = BaseFlags.get().isComposeRefactorEnabled()
-        val isColorPickerUpdateEnabled = BaseFlags.get().isColorPickerUpdateEnabled()
-        val isColorPickerComposeEnabled = BaseFlags.get().isColorPickerComposeEnabled()
+        val isComposeRefactorEnabled = BaseFlags.get(context).isComposeRefactorEnabled()
+        val isColorPickerUpdateEnabled = BaseFlags.get(context).isColorPickerUpdateEnabled()
+        val isColorPickerComposeEnabled = BaseFlags.get(context).isColorPickerComposeEnabled()
+        val isDesktopUi: Boolean = BaseFlags.get(context).shouldShowDesktopUi(context)
         val isKeyguardQuickAffordanceEnabled =
-            BaseFlags.get().isKeyguardQuickAffordanceEnabled(bottomSheetContainer.context)
+            BaseFlags.get(context).isKeyguardQuickAffordanceEnabled(bottomSheetContainer.context)
         return buildMap {
             putAll(map)
             put(
                 CLOCK,
                 inflateFloatingSheet(CLOCK, bottomSheetContainer, layoutInflater).also {
                     bottomSheetContainer.addView(it)
+                    val clockColorContentStub: ViewStub =
+                        it.requireViewById(R.id.clock_color_content_stub)
+                    clockColorContentStub.layoutResource =
+                        if (isDesktopUi) {
+                            R.layout.floating_sheet_clock_color_desktop_content
+                        } else {
+                            R.layout.floating_sheet_clock_color_content
+                        }
+                    clockColorContentStub.inflate()
                 },
             )
             if (isKeyguardQuickAffordanceEnabled) {
@@ -237,7 +249,7 @@ constructor(
             put(
                 COLORS,
                 if (isColorPickerUpdateEnabled && isColorPickerComposeEnabled) {
-                        ComposeView(context).apply { setContent { ColorFloatingSheet() } }
+                        ComposeView(context)
                     } else {
                         inflateFloatingSheet(COLORS, bottomSheetContainer, layoutInflater)
                     }
